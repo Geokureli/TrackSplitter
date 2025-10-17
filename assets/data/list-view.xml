@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<vbox width="100%" height="100%" style="padding:10px;">
+	<hbox width="100%" height="100%">
+		<panel text="" width="100%" height="100%" >
+			<header>
+				<hbox >
+					<button id="loadBtn" text="Choose Folder" verticalAlign="center" />
+					<label text="Sort by" verticalAlign="center" />
+					<dropdown width="100" selectedIndex="0" verticalAlign="center" >
+						<data>
+							<item text="Artist" />
+							<item text="Title" />
+							<item text="Year" />
+							<item text="Artist/Album" />
+							<item text="Genre" />
+						</data>
+					</dropdown>
+					<checkbox id="filterFavs" text="Fav" selected="false" verticalAlign="center" />
+				</hbox>
+			</header>
+			<vbox width="100%" height="100%" >
+				<label id="loadInfoText" text="No folder chosen" />
+				<tree-view id="songList" width="100%" height="100%" styleName="full-width" >
+					<item-renderer layout="horizontal" width="100%">
+						<label width="30%" id="artist" verticalAlign="center" textAlign="right" />
+						<label width="70%" id="title"  verticalAlign="center" style="font-size:16;font-bold: true;" />
+						<checkbox id="favorite" />
+					</item-renderer>
+					<item-renderer id="expandable" layout="horizontal" width="100%" style="padding:0;">
+						<label id="label" width="100%"  verticalAlign="center" style="font-size:16;font-bold: true;" />
+						<hbox style="background-color: $solid-background-color-alt;border-radius:3px;padding: 1px 3px;spacing:0;" verticalAlign="center">
+							<label id="count" style="color:#888888;font-size: 11px;" />
+							<label text=" Songs" style="color:#888888;font-size: 11px;" />
+						</hbox>
+					</item-renderer>
+				</tree-view>
+			</vbox>
+			<footer width="100%">
+				<hbox width="100%">
+					<!-- <button text="Back" id="back" width="25%" /> -->
+					<!-- <button text="Favorite" id="confirm" width="25%" /> -->
+					<!-- <button text="Play" id="confirm" width="25%" /> -->
+					<label text="Instructions here" verticalAlign="center"/>
+				</hbox>
+			</footer>
+		</panel>
+		<vbox height="100%">
+			<image width="200" height="200" resource="haxeui-core/styles/default/haxeui.png" />
+			<button text="Play Track" id="confirm" width="100%" />
+			<label width="100%" text="Artist Name" verticalAlign="center" textAlign="center" style="font-size: 24; font-bold: true;"/>
+			<vbox width="100%">
+				<label width="100%" text="Album Name" verticalAlign="center" textAlign="center"/>
+				<label width="100%" text="Genre Name" verticalAlign="center" textAlign="center"/>
+				<label width="100%" text="Year Released" verticalAlign="center" textAlign="center"/>
+			</vbox>
+		</vbox>
+	</hbox>
+</vbox>

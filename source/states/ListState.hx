@@ -2,13 +2,14 @@ package states;
 
 import data.SongData;
 import flixel.FlxG;
-import flixel.input.actions.FlxActionManager.ActionSetJson;
-import flixel.text.FlxInputText;
-import flixel.text.FlxText;
-import flixel.ui.FlxButton;
+import flixel.util.FlxColor;
 import flixel.util.FlxTimer;
 import haxe.Exception;
 import haxe.io.Path;
+import haxe.ui.containers.TreeView;
+import haxe.ui.containers.VBox;
+import haxe.ui.events.MouseEvent;
+import haxe.ui.events.UIEvent;
 import openfl.events.Event;
 import openfl.events.IOErrorEvent;
 import openfl.filesystem.File;
@@ -16,30 +17,28 @@ import ui.SongList;
 
 class ListState extends flixel.FlxState
 {
+	override public function create():Void
+	{
+		// FlxG.cameras.bgColor = FlxColor.WHITE;
+		
+		add(new ListView());
+	}
+}
+
+@:build(haxe.ui.ComponentBuilder.build('assets/data/list-view.xml'))
+class ListView extends VBox
+{
 	static var library:Array<SongData> = null;
 	
-	final pathText:FlxText;
-	final statusText:FlxText;
-	var list:Null<SongList>;
-	
-	public function new ()
+	public function new()
 	{
 		super();
-		bgColor = 0xFFffffff;
 		
-		final MARGIN = 10;
-		final GAP = 10;
-		
-		final setPathButton = new FlxButton(MARGIN, MARGIN, "Choose Folder", onClickChoose);
-		add(setPathButton);
-		
-		pathText = new FlxText(setPathButton.x + setPathButton.width + GAP, MARGIN, 0, "No directory selected");
-		add(pathText);
-		statusText = new FlxText(MARGIN, pathText.y + pathText.height + GAP, 0, "");
-		statusText.color = 0xFF000000;
-		add(statusText);
-		
-		checkSavedDirectory();
+		registerEvent(UIEvent.SHOWN, function onShown(e)
+		{
+			checkSavedDirectory();
+			trace((loadInfoText.style.color:FlxColor).toHexString());
+		});
 	}
 	
 	function checkSavedDirectory()
@@ -48,32 +47,33 @@ class ListState extends flixel.FlxState
 		if (savedPath != null)
 		{
 			final file = new File(savedPath);
-			pathText.text = savedPath;
+			loadInfoText.style.color = 0xAAAAAA;
+			loadInfoText.text = 'Loading $savedPath';
 			if (false == file.exists)
 			{
-				pathText.color = 0xFFff0000;
-				statusText.text = "Saved directory does not exist";
+				loadInfoText.style.color = 0xFF0000;
+				loadInfoText.text = '$savedPath does not exist: ';
 			}
 			else if (false == file.isDirectory)
 			{
-				pathText.color = 0xFFff0000;
-				statusText.text = "Saved directory is not a folder";
+				loadInfoText.style.color = 0xFF0000;
+				loadInfoText.text = '$savedPath is not a folder';
 			}
 			else
 			{
-				pathText.color = 0xFF000000;
 				// let one frame draw before loading
 				FlxTimer.wait(0.001, ()->selectDirectory(file));
 			}
 		}
 		else
 		{
-			pathText.text = "No directory selected";
-			pathText.color = 0xFF808080;
+			// loadInfoText.text = "No directory selected";
+			// loadInfoText.color = 0xFF808080;
 		}
 	}
 	
-	function onClickChoose()
+	@:bind(loadBtn, MouseEvent.CLICK)
+	function onClickChoose(e)
 	{
 		final directory:File = File.documentsDirectory;
 		try
@@ -90,15 +90,9 @@ class ListState extends flixel.FlxState
 			{
 				removeListeners();
 				
-				statusText.text = "Directory found, loading song data...";
-				
-				if (list != null)
-				{
-					remove(list);
-					list.destroy();
-				}
-				
+				songList.clearNodes();
 				library = null;
+				
 				saveDirectory(directory);
 				selectDirectory(directory);
 			}
@@ -106,13 +100,11 @@ class ListState extends flixel.FlxState
 			onBrowseCancel = function (e:Event)
 			{
 				removeListeners();
-				statusText.text = "File browser cancelled";
 			}
 			
 			directory.addEventListener(Event.SELECT, onBrowseComplete);
 			directory.addEventListener(Event.CANCEL, onBrowseCancel);
 			directory.browseForDirectory("Select Directory");
-			statusText.text = "File browser opened";
 		}
 		catch (error)
 		{
@@ -128,26 +120,40 @@ class ListState extends flixel.FlxState
 			return;
 		}
 		
-		pathText.color = 0xFF000000;
-		pathText.text = directory.nativePath;
+		loadInfoText.hidden = false;
+		loadInfoText.text = 'Loading songs from ${directory.nativePath}}';
 		
 		SongData.scanForSongs(directory, 
 			function onLoad(songs)
 			{
 				library = songs;
+				
+				if (library.length == 0)
+					loadInfoText.text = 'No songs found at ${directory.nativePath}';
+				else
+					loadInfoText.hidden = true;
+				
 				onLibraryLoad();
 			},
 			function onProgress(files, successCount, ioErrorCount, parseFailCount, time)
 			{
-				statusText.text = '$files files(s) found, $successCount song(s) loaded, $parseFailCount invalid song(s), $ioErrorCount error(s) in ${time}s';
+				loadInfoText.text
+					= '$files files(s) found'
+					+ '\n$successCount song(s) loaded'
+					+ '\n$parseFailCount invalid song(s)'
+					+ '\n$ioErrorCount error(s) in ${time}s'
+					;
 			}
 		);
 	}
 	
 	function onLibraryLoad()
 	{
-		list = new SongList(10, statusText.y + statusText.height, FlxG.width - 20, library, onSelectSong);
-		add(list);
+		loadInfoText.hidden = false;
+		for (song in library)
+		{
+			songList.addNode({ artist: song.data.artist, title:song.data.name, favorite:false });
+		}
 	}
 	
 	function saveDirectory(directory:File)
@@ -156,11 +162,6 @@ class ListState extends flixel.FlxState
 		FlxG.save.flush();
 	}
 	
-	
-	function onSelectSong(song:SongData)
-	{
-		FlxG.switchState(()->new PlayState(song, ListState.new));
-	}
 }
 
 typedef SaveData =

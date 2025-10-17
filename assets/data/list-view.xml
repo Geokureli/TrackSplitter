@@ -6,11 +6,12 @@
 				<hbox >
 					<button id="loadBtn" text="Choose Folder" verticalAlign="center" />
 					<label text="Sort by" verticalAlign="center" />
-					<dropdown width="100" selectedIndex="0" verticalAlign="center" >
+					<dropdown id="sortBy" width="100" selectedIndex="0" verticalAlign="center" >
 						<data>
 							<item text="Artist" />
 							<item text="Title" />
 							<item text="Year" />
+							<item text="Album" />
 							<item text="Artist/Album" />
 							<item text="Genre" />
 						</data>

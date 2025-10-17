@@ -7,6 +7,7 @@ import flixel.util.FlxTimer;
 import haxe.Exception;
 import haxe.io.Path;
 import haxe.ui.containers.TreeView;
+import haxe.ui.containers.TreeViewNode;
 import haxe.ui.containers.VBox;
 import haxe.ui.events.MouseEvent;
 import haxe.ui.events.UIEvent;
@@ -37,7 +38,8 @@ class ListView extends VBox
 		registerEvent(UIEvent.SHOWN, function onShown(e)
 		{
 			checkSavedDirectory();
-			trace((loadInfoText.style.color:FlxColor).toHexString());
+			// sortBy.registerEvent(haxe.ui.events.
+			// sortBy.onChange.bind(onSortChange);
 		});
 	}
 	
@@ -151,20 +153,76 @@ class ListView extends VBox
 	
 	function onLibraryLoad()
 	{
+		sortLibrary();
 	}
 	
+	@:bind(sortBy, UIEvent.CHANGE)
 	function onSortChange(e)
 	{
-		songList.clearNodes();
-		sortLibrary();
+		if (library != null)
+		{
+			songList.clearNodes();
+			sortLibrary();
+		}
 	}
 	
 	function sortLibrary()
 	{
+		final sortOrders = (sortBy.selectedItem.text:String).toLowerCase().split("/");
+		function getGroupNode(song:SongData)
+		{
+			var groupNode:TreeViewNode = null;
+			for (i=>sorter in sortOrders)
+			{
+				final value = switch sorter
+				{
+					case "artist": song.data.artist;
+					case "title" : song.data.name;
+					case "album" : song.data.album;
+					case "year"  : '${song.data.year}';
+					case "genre" : song.data.genre;
+					default: throw 'Unexpected sorter: sorter';
+				}
+				
+				if (value == null || value == "")
+					return null;
+				
+				if (groupNode != null)
+				{
+					groupNode = groupNode.findNode(value, 'label')
+						?? groupNode.addNode({ label:value, count:0 });
+				}
+				else
+				{
+					groupNode = songList.findNode(value, 'label')
+						?? songList.addNode({ label:value, count:0 });
+				}
+			}
+			
+			return groupNode;
+		}
+		
 		for (song in library)
 		{
-			songList.addNode({ artist: song.data.artist, title:song.data.name, favorite:false });
+			if (showNode(song) == false)
+				continue;
+			
+			final groupNode = getGroupNode(song);
+			if (groupNode == null)
+				continue;
+			
+			final node = groupNode.addNode({ artist: song.data.artist, title:song.data.name, favorite:false });
 		}
+		
+		// TODO: update group counts
+	}
+	
+	function showNode(song:SongData)
+	{
+		if (filterFavs.selected)
+			return false; // TODO: save and check favs
+		
+		return true;
 	}
 	
 	function saveDirectory(directory:File)

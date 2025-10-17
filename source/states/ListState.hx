@@ -120,7 +120,7 @@ class ListView extends VBox
 			return;
 		}
 		
-		loadInfoText.hidden = false;
+		loadInfoText.show();
 		loadInfoText.text = 'Loading songs from ${directory.nativePath}}';
 		
 		SongData.scanForSongs(directory, 
@@ -131,7 +131,10 @@ class ListView extends VBox
 				if (library.length == 0)
 					loadInfoText.text = 'No songs found at ${directory.nativePath}';
 				else
-					loadInfoText.hidden = true;
+				{
+					loadInfoText.text = '';
+					loadInfoText.hide();
+				}
 				
 				onLibraryLoad();
 			},

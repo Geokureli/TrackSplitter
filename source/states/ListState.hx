@@ -93,8 +93,8 @@ class ListView extends VBox
 				songList.clearNodes();
 				library = null;
 				
-				saveDirectory(directory);
 				selectDirectory(directory);
+				saveDirectory(directory);
 			}
 			
 			onBrowseCancel = function (e:Event)
@@ -126,12 +126,11 @@ class ListView extends VBox
 		SongData.scanForSongs(directory, 
 			function onLoad(songs)
 			{
-				library = songs;
-				
-				if (library.length == 0)
+				if (songs.length == 0)
 					loadInfoText.text = 'No songs found at ${directory.nativePath}';
 				else
 				{
+					library = songs;
 					loadInfoText.text = '';
 					loadInfoText.hide();
 				}
@@ -152,7 +151,16 @@ class ListView extends VBox
 	
 	function onLibraryLoad()
 	{
-		loadInfoText.hidden = false;
+	}
+	
+	function onSortChange(e)
+	{
+		songList.clearNodes();
+		sortLibrary();
+	}
+	
+	function sortLibrary()
+	{
 		for (song in library)
 		{
 			songList.addNode({ artist: song.data.artist, title:song.data.name, favorite:false });

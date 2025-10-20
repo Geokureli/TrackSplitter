@@ -38,8 +38,6 @@ class ListView extends VBox
 		registerEvent(UIEvent.SHOWN, function onShown(e)
 		{
 			checkSavedDirectory();
-			// sortBy.registerEvent(haxe.ui.events.
-			// sortBy.onChange.bind(onSortChange);
 		});
 	}
 	
@@ -220,7 +218,7 @@ class ListView extends VBox
 	function showNode(song:SongData)
 	{
 		if (filterFavs.selected)
-			return false; // TODO: save and check favs
+			return false; // TODO: save and check favs 
 		
 		return true;
 	}

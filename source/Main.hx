@@ -14,7 +14,7 @@ class Main extends openfl.display.Sprite
 		toolkit.theme = "dark";
 		toolkit.scaleX = toolkit.scaleY = 1;
 		
-		addChild(new FlxGame(0, 0, states.ListState));
-		// addChild(new FlxGame(0, 0, states.BrowseState));
+		// addChild(new FlxGame(0, 0, states.ListState));
+		addChild(new FlxGame(0, 0, states.BrowseState));
 	}
 }

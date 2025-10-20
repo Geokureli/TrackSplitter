@@ -2,34 +2,41 @@ package states;
 
 import data.SongData;
 import flixel.FlxG;
-import flixel.FlxSprite;
-import flixel.group.FlxSpriteContainer;
-import flixel.sound.FlxDjTrack.FlxTypedDjTrack;
+import flixel.sound.FlxDjChannel;
 import flixel.sound.FlxDjTrack;
-import flixel.text.FlxText;
-import flixel.ui.FlxButton;
-import flixel.util.FlxSignal;
 import flixel.util.typeLimit.NextState;
 import haxe.io.Path;
+import haxe.ui.containers.HBox;
+import haxe.ui.containers.VBox;
+import haxe.ui.events.DragEvent;
+import haxe.ui.events.MouseEvent;
+import haxe.ui.events.UIEvent;
 import openfl.media.Sound;
 
 class PlayState extends flixel.FlxState
 {
-	public final track:FlxDjTrack;
-	public var ui:TrackUI;
-	
 	public function new(song:SongData, backState:NextState)
 	{
 		super();
-		bgColor = 0xFF808080;
 		
-		track = new FlxDjTrack();
-		function onLoad()
-		{
-			add(track);
-			add(ui = new TrackUI(track, song.data.name, ()->track.play(), ()->track.play(true)));
-			ui.screenCenter();
-		}
+		final view = new PlayView(song);
+		view.backBtn.registerEvent(MouseEvent.CLICK, (_)->FlxG.switchState(backState));
+		add(view);
+	}
+}
+
+@:build(haxe.ui.ComponentBuilder.build('assets/data/play-view.xml'))
+class PlayView extends VBox
+{
+	final track = new FlxDjTrack();
+	final items = new Array<ChannelItem>();
+	var draggingPlayhead = false;
+	
+	public function new(song:SongData)
+	{
+		super();
+		
+		titleText.text = song.data.name;
 		
 		var soundsLeft = song.tracks.length;
 		for (trackPath in song.tracks)
@@ -37,240 +44,140 @@ class PlayState extends flixel.FlxState
 			final future = Sound.loadFromFile(Path.normalize(song.file.nativePath + "/" + trackPath));
 			future.onComplete(function (sound)
 			{
-				track.add(trackPath, sound);
+				addChannel(sound, trackPath);
 				if (--soundsLeft == 0)
 					onLoad();
 			});
 		}
 		
-		add(new FlxButton(10, 10, "Back to Library", ()->FlxG.switchState(backState)));
+		// registerEvent(UIEvent.SHOWN, function (e)
+		// {
+		// });
 	}
 	
-	override function update(elapsed:Float)
+	function onLoad()
 	{
-		super.update(elapsed);
-	}
-}
-
-private class TrackUI extends FlxSpriteContainer
-{
-	public final track:FlxDjTrack;
-	
-	final channels = new FlxTypedSpriteContainer<ChannelUI>();
-	final name:String;
-	final label:FlxText;
-	final playhead:Playhead;
-	
-	public function new (track, name:String, onPlay:()->Void, onRestart:()->Void)
-	{
-		this.track = track;
-		this.name = name;
-		super();
+		loadAnim.hide();
+		channelList.show();
 		
-		var y = 0.0;
-		final gap = 4;
-		
-		label = new FlxText(0, y, ChannelUI.LABEL_WIDTH, name);
-		add(label);
-		
-		final playBtn = new FlxButton(0, y, "Play", onPlay);
-		playBtn.x = label.x + label.width;
-		label.y = playBtn.y + (playBtn.height - label.height) / 2;
-		add(playBtn);
-		
-		final restartBtn = new FlxButton(0, y, "Restart", onRestart);
-		restartBtn.x = playBtn.x + playBtn.width + ChannelUI.BUTTON_GAP;
-		label.y = restartBtn.y + (restartBtn.height - label.height) / 2;
-		add(restartBtn);
-		
-		y += playBtn.height + gap;
-		
-		playhead = new Playhead(1, y + 1, Std.int(this.width) - 2);
-		playhead.onDrag.add(onPlayheadDrag);
-		add(playhead);
-		
-		y += playhead.height + gap;
-		
-		final allOnBtn = new FlxButton(0, y, "All on", allOnClick);
-		allOnBtn.x = ChannelUI.LABEL_WIDTH;
-		add(allOnBtn);
-		
-		final allOffBtn = new FlxButton(0, y, "All off", allOffClick);
-		allOffBtn.x = allOnBtn.x + allOnBtn.width + ChannelUI.BUTTON_GAP;
-		add(allOffBtn);
-		
-		y += allOnBtn.height + gap;
-		
-		for (id=>channel in track.channels)
+		playhead.max = track.length;
+		playhead.registerEvent(DragEvent.DRAG_START, (_)->draggingPlayhead = true);
+		playhead.registerEvent(DragEvent.DRAG_END, function (e)
 		{
-			if (channel.syncMode.match(ONCE))
-			{
-				final button = new ChannelUI(0, y, track, id);
-				channels.add(button);
-				y += button.height + gap;
-			}
-		}
-		
-		final margin = 3;
-		final loopLabel = new FlxText(0, y - margin, "Sub-loops");
-		loopLabel.x = (channels.width - loopLabel.width) / 2;
-		loopLabel.exists = false;
-		y += loopLabel.height + gap - margin * 2;
-		
-		for (id=>channel in track.channels)
-		{
-			if (channel.syncMode.match(LOOP(_)))
-			{
-				final button = new ChannelUI(0, y, track, id);
-				channels.add(button);
-				y += button.height + gap;
-				loopLabel.exists = true;
-			}
-		}
-		
-		add(channels);
-		add(loopLabel);
-	}
-	
-	function allOnClick()
-	{
-		for (id=>channel in track.channels)
-		{
-			if (channel.syncMode.match(ONCE) && channel.volume != 1.0)
-				channel.fadeTo(ChannelUI.fadeTime, 1.0);
-		}
-	}
-	
-	function allOffClick()
-	{
-		for (id=>channel in track.channels)
-		{
-			if (channel.syncMode.match(ONCE) && channel.volume != 0.0)
-				channel.fadeTo(ChannelUI.fadeTime, 0.0);
-		}
-	}
-	
-	function onPlayheadDrag(ratio:Float)
-	{
-		track.time = (track.duration * ratio);
-	}
-	
-	override function update(elapsed:Float)
-	{
-		super.update(elapsed);
-		
-		label.text = '$name: ${Math.floor(track.volume * 100)}';
-		
-		for (channel in channels)
-			channel.label.text = '${channel.id}: ${Math.floor(100 * track.getChannelVolume(channel.id))}';
-		
-		playhead.setPlayPosition(track.time / track.duration);
-	}
-}
-
-private class ChannelUI extends FlxSpriteContainer
-{
-	static public inline var LABEL_WIDTH = 400;
-	static public inline var BUTTON_GAP = 4;
-	static public var fadeTime = 0.25;
-	
-	public final label:FlxText;
-	public final toggleBtn:FlxButton;
-	public final focusBtn:FlxButton;
-	public final id:String;
-	
-	public function new (x = 0.0, y = 0.0, track:FlxDjTrack, id:String)
-	{
-		this.id = id;
-		super();
-		
-		label = new FlxText(0, 0, LABEL_WIDTH, '$id: 0');
-		
-		toggleBtn = new FlxButton(label.width, 0, "toggle", function()
-		{
-			if (track.getChannelVolume(id) == 0)
-				track.fadeChannelIn(id, fadeTime);
-			else
-				track.fadeChannelOut(id, fadeTime);
+			draggingPlayhead = false;
+			track.time = playhead.pos;
 		});
 		
-		focusBtn = new FlxButton(toggleBtn.x + toggleBtn.width + BUTTON_GAP, 0, "focus", ()->track.fadeChannelFocus(id, fadeTime));
+		onBtn.show();
+		onBtn.registerEvent(MouseEvent.CLICK, function (_)
+		{
+			for (item in items)
+				item.volume.pos = item.volume.max;
+		});
 		
-		label.y = toggleBtn.y + (toggleBtn.height - label.height) / 2;
-		add(label);
-		add(toggleBtn);
-		add(focusBtn);
+		offBtn.show();
+		offBtn.registerEvent(MouseEvent.CLICK, function (_)
+		{
+			for (item in items)
+				item.volume.pos = 0;
+		});
 		
-		this.x = x;
-		this.y = y;
-	}
-}
-
-private class Playhead extends FlxSpriteContainer
-{
-	public var onDrag = new FlxTypedSignal<(Float)->Void>();
-	
-	final bg:FlxSprite;
-	final inner:FlxSprite;
-	final handle:FlxSprite;
-	var dragging = false;
-	
-	var thickness(get, never):Float;
-	inline function get_thickness() return bg.height / 2;
-	
-	public function new (x = 0.0, y = 0.0, width:Int, thickness = 7, inset = 1)
-	{
-		super(x, y);
+		masterVolume.show();
+		masterVolume.registerEvent(DragEvent.DRAG, (_)->track.volume = masterVolume.pos / masterVolume.max);
 		
-		if (thickness <= inset)
-			throw 'playhead thickness cannot be $thickness with an inset of $inset';
+		playBtn.show();
+		playBtn.registerEvent(MouseEvent.CLICK, function (_)
+		{
+			if (track.playing)
+			{
+				track.pause();
+				playBtn.text = ">";//"▶";
+			}
+			else
+			{
+				track.play();
+				playBtn.text = "||";//"▮▮";
+			}
+		});
 		
-		bg = new FlxSprite(0, 0);
-		bg.makeGraphic(width, thickness, 0xFF000000);
-		add(bg);
-		
-		inner = new FlxSprite(inset, inset);
-		inner.makeGraphic(width - (inset * 2), thickness - (inset * 2), 0xFFffffff);
-		inner.origin.x = 0;
-		add(inner);
-		
-		final OUTSET = 1;
-		handle = new FlxSprite(thickness, -OUTSET);
-		handle.makeGraphic(thickness + (2 * OUTSET), thickness + (2 * OUTSET), 0xFFa0a0a0);
-		handle.offset.x = handle.origin.x;
-		add(handle);
+		restartBtn.show();
+		restartBtn.registerEvent(MouseEvent.CLICK, function (_)
+		{
+			playBtn.text = "||";//"▮▮";
+			track.play(true);
+		});
 	}
 	
-	public function setPlayPosition(ratio:Float)
+	function addChannel(sound:Sound, name:String)
 	{
-		inner.scale.x = ratio;
-		if (!dragging)
-			handle.x = this.x + thickness + (bg.width - thickness * 2) * ratio;
+		final channel = track.add(name, sound);
+		var item:ChannelItem = null;
+		item = new ChannelItem(name, (volume)->channel.fadeTo(0.05, volume), ()->setFocus(item));
+		items.push(item);
+		channelList.addComponent(item);
+	}
+	
+	function setFocus(focusItem:ChannelItem)
+	{
+		for (item in items)
+		{
+			if (item != focusItem)
+			{
+				item.volume.pos = 0;
+				item.mute.text = "Unmute";
+			}
+		}
+		
+		if (focusItem.volume.pos == 0)
+		{
+			focusItem.volume.pos = focusItem.volume.max;
+			focusItem.mute.text = "Mute";
+		}
 	}
 	
 	override function update(elapsed:Float)
 	{
 		super.update(elapsed);
 		
-		if (FlxG.mouse.justPressed && FlxG.mouse.overlaps(bg))
-			dragging = true;
-		
-		if (dragging)
+		if (track.playing && false == draggingPlayhead)
 		{
-			handle.x = FlxG.mouse.x;
-			if (handle.x < bg.x + thickness)
-				handle.x = bg.x + thickness;
-			
-			if (handle.x > bg.x + bg.width - thickness)
-				handle.x = bg.x + bg.width - thickness;
+			trace('range: ${playhead.min}<->${playhead.max} - ${track.time}');
+			playhead.pos = track.time;
 		}
+	}
+}
+
+@:xml('<?xml version="1.0" encoding="utf-8" ?>
+<hbox width="100%">
+	<label id="nameText" width="124" verticalAlign="center" />
+	<slider id="volume" pos="100" verticalAlign="center" width="100%" />
+	<button id="mute" text="Mute"  width="80" />
+	<button id="focus" text="Focus" width="80" />
+</hbox>
+')
+class ChannelItem extends HBox
+{
+	public function new(name:String, onVolumeChange:(Float)->Void, onFocusClick:()->Void)
+	{
+		super();
 		
-		if (FlxG.mouse.justReleased)
+		nameText.text = name;
+		volume.registerEvent(UIEvent.CHANGE, (_)->onVolumeChange(volume.pos / volume.max));
+		focus.registerEvent(MouseEvent.CLICK, (_)->onFocusClick());
+	}
+	
+	@:bind(mute, MouseEvent.CLICK)
+	function onToggleVolumeClick(e)
+	{
+		if (mute.text == "Mute")
 		{
-			dragging = false;
-			final ratio = (handle.x - (bg.x + thickness)) / (bg.width - 2 * thickness);
-			setPlayPosition(ratio);
-			onDrag.dispatch(ratio);
+			mute.text = "Unmute";
+			volume.pos = 0;
+		}
+		else
+		{
+			mute.text = "Mute";
+			volume.pos = volume.max;
 		}
 	}
 }

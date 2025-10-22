@@ -1,29 +1,15 @@
-package states;
+package ui;
 
 import data.SongData;
-import flixel.FlxG;
-import flixel.sound.FlxDjChannel;
 import flixel.sound.FlxDjTrack;
-import flixel.util.typeLimit.NextState;
 import haxe.io.Path;
 import haxe.ui.containers.HBox;
 import haxe.ui.containers.VBox;
 import haxe.ui.events.DragEvent;
 import haxe.ui.events.MouseEvent;
 import haxe.ui.events.UIEvent;
+import openfl.events.Event;
 import openfl.media.Sound;
-
-class PlayState extends flixel.FlxState
-{
-	public function new(song:SongData, backState:NextState)
-	{
-		super();
-		
-		final view = new PlayView(song);
-		view.backBtn.registerEvent(MouseEvent.CLICK, (_)->FlxG.switchState(backState));
-		add(view);
-	}
-}
 
 @:build(haxe.ui.ComponentBuilder.build('assets/data/play-view.xml'))
 class PlayView extends VBox
@@ -37,22 +23,18 @@ class PlayView extends VBox
 		super();
 		
 		titleText.text = song.data.name;
-		
-		var soundsLeft = song.tracks.length;
-		for (trackPath in song.tracks)
+
+		registerEvent(UIEvent.SHOWN, function (e)
 		{
-			final future = Sound.loadFromFile(Path.normalize(song.file.nativePath + "/" + trackPath));
-			future.onComplete(function (sound)
+			song.loadTracks(function (sounds)
 			{
-				addChannel(sound, trackPath);
-				if (--soundsLeft == 0)
-					onLoad();
+				for (track=>sound in sounds)
+					addChannel(sound, track);
 			});
-		}
+			onLoad();
+		});
 		
-		// registerEvent(UIEvent.SHOWN, function (e)
-		// {
-		// });
+		addEventListener(Event.ENTER_FRAME, update);
 	}
 	
 	function onLoad()
@@ -135,13 +117,11 @@ class PlayView extends VBox
 		}
 	}
 	
-	override function update(elapsed:Float)
+	function update(_)
 	{
-		super.update(elapsed);
-		
 		if (track.playing && false == draggingPlayhead)
 		{
-			trace('range: ${playhead.min}<->${playhead.max} - ${track.time}');
+			// trace('range: ${playhead.min}<->${playhead.max} - ${track.time}');
 			playhead.pos = track.time;
 		}
 	}

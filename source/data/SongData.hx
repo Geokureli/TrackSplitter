@@ -1,6 +1,5 @@
 package data;
 
-import flixel.FlxG;
 import flixel.util.FlxTimer;
 import haxe.Exception;
 import haxe.Timer;
@@ -8,6 +7,15 @@ import haxe.io.Path;
 import openfl.events.Event;
 import openfl.events.IOErrorEvent;
 import openfl.filesystem.File;
+import openfl.media.Sound;
+import openfl.utils.ByteArray;
+
+typedef SongDataSave =
+{
+	path:String,
+	data:SongIniSave,
+	tracks:Array<String>
+}
 
 class SongData
 {
@@ -15,21 +23,116 @@ class SongData
 	public final data:SongIniData;
 	public final tracks:Array<String>;
 	
-	public function new (file:SongFile, data:SongIniData)
+	public function new (file, data, tracks)
 	{
-		this.file = switch file
+		this.file = file;
+		this.data = data;
+		this.tracks = tracks;
+	}
+	
+	public function toSave():SongDataSave
+	{
+		return
+			{ path  : file.nativePath
+			, data  : data.toSave()
+			, tracks: tracks
+			}
+	}
+	
+	public function loadTracks(onComplete:(Map<String, Sound>)->Void)
+	{
+		final sounds = new Map<String, Sound>();
+		var soundsLeft = tracks.length;
+		function add(track, sound)
+		{
+			// trace('$track loaded. ${soundsLeft - 1} left');
+			sounds[track] = sound;
+			if (--soundsLeft == 0)
+				onComplete(sounds);
+		}
+		
+		for (track in tracks)
+		{
+			final path = new File(Path.normalize(file.nativePath + "/" + track));
+			// trace('Loading track: $track');
+			switch path.extension
+			{
+				case "ogg":
+					final future = Sound.loadFromFile(track);
+					future.onComplete(add.bind(track, _));
+				case "opus":
+					loadFile(path, (result)->switch result
+					{
+						case SUCCESS(data):
+							add(track, hxopus.Opus.toOpenFL(data));
+						case PARSE_FAIL(exception):
+							throw exception;
+						case IO_ERROR(error):
+							throw error.toString();
+					});
+				default:
+			}
+			
+		}
+	}
+	
+	static public function loadFile(file:File, callback:(LoadResult<ByteArray>)->Void)
+	{
+		var onLoad:(Event)->Void = null;
+		var onError:(IOErrorEvent)->Void = null;
+		function removeListeners()
+		{
+			file.removeEventListener(Event.COMPLETE, onLoad);
+			file.removeEventListener(IOErrorEvent.IO_ERROR, onError);
+		}
+		
+		onLoad = function (e:Event)
+		{
+			removeListeners();
+			
+			try
+			{
+				callback(SUCCESS(file.data));
+			}
+			catch(e)
+			{
+				callback(PARSE_FAIL(e));
+			}
+		}
+		
+		onError = function (e:IOErrorEvent)
+		{
+			removeListeners();
+			callback(IO_ERROR(e));
+		}
+		
+		file.addEventListener(Event.COMPLETE, onLoad);
+		file.addEventListener(IOErrorEvent.IO_ERROR, onError);
+		file.load();
+	}
+	
+	static public function fromSave(data:SongDataSave)
+	{
+		return new SongData(new File(data.path), SongIniData.fromSave(data.data), data.tracks);
+	}
+	
+	static public function fromFile(songFile:SongFile, data:SongIniData)
+	{
+		final file = switch songFile
 		{
 			case FOLDER(folder, _): folder;
 			case SNG(file): file;
 			case ZIP(file): file;
 		}
-		this.data = data;
-		this.tracks = switch file
+		
+		final data = data;
+		final tracks = switch songFile
 		{
 			case FOLDER(folder, _): getTracksInFolder(folder.getDirectoryListing());
 			case SNG(_): []; // TODO:
 			case ZIP(_): []; // TODO:
 		}
+		return new SongData(file, data, tracks);
 	}
 	
 	static function getTracksInFolder(files:Array<File>)
@@ -38,8 +141,11 @@ class SongData
 		
 		for (file in files)
 		{
-			if (Path.extension(file.name) == "ogg")
-				tracks.push(file.name);
+			switch (Path.extension(file.name))
+			{
+				case "ogg" | "opus":
+					tracks.push(file.name);
+			}
 		}
 		
 		return tracks;
@@ -130,12 +236,12 @@ class SongData
 		return list;
 	}
 	
-	static public function loadPath(path:String, onComplete:(LoadSongResult)->Void)
+	static public function loadSongPath(path:String, onComplete:(LoadSongResult)->Void)
 	{
-		loadFile(new File(path), onComplete);
+		loadSongFile(new File(path), onComplete);
 	}
 	
-	static public function loadFile(file:File, onComplete:(LoadSongResult)->Void)
+	static public function loadSongFile(file:File, onComplete:(LoadSongResult)->Void)
 	{
 		loadSong(getSongFile(file), onComplete);
 	}
@@ -152,7 +258,7 @@ class SongData
 					switch result
 					{
 						case SUCCESS(data):
-							onComplete(SUCCESS(new SongData(song, data)));
+							onComplete(SUCCESS(SongData.fromFile(song, data)));
 						case fail:
 							onComplete(INI_FAIL(fail));
 					}
@@ -209,68 +315,46 @@ enum SongFile
 	ZIP(file:File);
 }
 
+@:structInit
 class SongIniData
 {
-	public final name            :UnicodeString; // name   
-	public final artist          :UnicodeString; // artist 
-	public final album           :UnicodeString; // album  
-	public final genre           :UnicodeString; // genre  
-	public final year            :Int          ; // year   
-	public final icon            :String       ; // icon   
+	public final name            :UnicodeString; // name
+	public final artist          :UnicodeString; // artist
+	public final album           :UnicodeString; // album
+	public final genre           :UnicodeString; // genre
+	public final year            :String       ; // year
+	public final icon            :String       ; // icon
 	public final charter         :UnicodeString; // charter
-	public final proDrums        :Bool         ; // "pro_drums"          
-	public final fiveLaneDrums   :Bool         ; // "five_lane_drums"    
-	public final sysExSlider     :Bool         ; // "sysex_slider"       
-	public final sysExHighHatCtrl:Bool         ; // "sysex_high_hat_ctrl"
-	public final sysExRimshot    :Bool         ; // "sysex_rimshot"      
-	public final sysExOpenBass   :Bool         ; // "sysex_open_bass"    
-	public final diffBand        :Int          ; // "diff_band"          
-	public final diffGuitar      :Int          ; // "diff_guitar"        
-	public final diffVocals      :Int          ; // "diff_vocals"        
-	public final diffDrums       :Int          ; // "diff_drums"         
-	public final diffBass        :Int          ; // "diff_bass"          
-	public final diffKeys        :Int          ; // "diff_keys"          
-	public final diffGuitarReal  :Int          ; // "diff_guitar_real"   
-	public final diffVocalsHarm  :Int          ; // "diff_vocals_harm"   
-	public final diffDrumsReal   :Int          ; // "diff_drums_real"    
-	public final diffBassReal    :Int          ; // "diff_bass_real"     
-	public final diffKeysReal    :Int          ; // "diff_keys_real"     
-	public final diffDance       :Int          ; // "diff_dance"         
-	public final diffGuitarCoop  :Int          ; // "diff_guitar_coop"   
-	public final diffRhythm      :Int          ; // "diff_rhythm"        
-	public final diffBassReal22  :Int          ; // "diff_bass_real_22"  
-	public final diffGuitarReal22:Int          ; // "diff_guitar_real_22"
-	public final loadingPhrase   :UnicodeString; // "loading_phrase"     
-	public final bannerLinkA     :String       ; // "banner_link_a"      
-	public final linkNameA       :String       ; // "link_name_a"        
-	public final bannerLinkB     :String       ; // "banner_link_b"      
-	public final linkNameB       :String       ; // "link_name_b"        
-	public final video           :String       ; // "video"              
-	public final videoStartTime  :Int          ; // "video_start_time"   
-	public final previewStartTime:Int          ; // "preview_start_time" 
-	public final diffDrumsRealPs :Int          ; // "diff_drums_real_ps" 
-	public final diffKeysRealPs  :Int          ; // "diff_keys_real_ps"  
-	public final delay           :Int          ; // "delay"
-	public final diffGuitarGhl   :Int          ; // "diff_guitarghl"     
-	public final diffBassGhl     :Int          ; // "diff_bassghl"       
-	public final track           :Int          ; // "track"              
-	public final albumTrack      :Int          ; // "album_track"        
-	public final playlistTrack   :Int          ; // "playlist_track"     
-	public final songLength      :Int          ; // "song_length"        
-	public final modChart        :Int          ; // "modchart"           
-	public final multiplierNote  :Int          ; // "multiplier_note"    
-	public final drumFallbackBlue:Bool         ; // "drum_fallback_blue" 
-	public final lastPlay        :String       ; // "last_play" 
+	public final proDrums        :Bool         ; // "pro_drums"
+	public final loadingPhrase   :UnicodeString; // "loading_phrase"
+	public final albumTrack      :Int          ; // "album_track"
+	public final songLength      :Int          ; // "song_length"
 	
-	public final errors:haxe.ds.ReadOnlyArray<UnicodeString> = [];
+	public function toString()
+	{
+		return    'name               : "$name"          '
+			+ '\n, artist             : "$artist"        '
+			+ '\n, album              : "$album"         '
+			+ '\n, genre              : "$genre"         '
+			+ '\n, year               : $year            '
+			+ '\n, icon               : "$icon"          '
+			+ '\n, charter            : "$charter"       '
+			+ '\n, pro_drums          : $proDrums        '
+			+ '\n, loading_phrase     : "$loadingPhrase" '
+			+ '\n, album_track        : $albumTrack      '
+			+ '\n, song_length        : $songLength      '
+			;
+	}
+	
 	
 	static final boolReg = ~/^(?:True|False|0|1)$/;
 	static final intReg = ~/-?\d+/;
-	public function new (data:UnicodeString, backupName:String)
+	
+	static public function fromFile(data:UnicodeString, backupName:String):SongIniData
 	{
 		final lines = data.split("\r\n").join("\n").split("\n");
 		final varMap = new Map<String, UnicodeString>();
-		final errors:Array<UnicodeString> = cast errors;
+		final errors = new Array<UnicodeString>();
 		
 		while (lines.length > 0)
 		{
@@ -326,118 +410,112 @@ class SongIniData
 				return backup;
 			}
 			
-			return Std.parseInt(value);
+			return Std.parseInt(intReg.matched(0));
 		}
 		
-		final nameRaw = getString("name"               , null);
-		artist           = getString("artist"             );
-		album            = getString("album"              );
-		genre            = getString("genre"              );
-		year             = getInt   ("year"               );
-		icon             = getString("icon"               );
-		charter          = getString("charter"            );
-		proDrums         = getBool  ("pro_drums"          );
-		fiveLaneDrums    = getBool  ("five_lane_drums"    );
-		sysExSlider      = getBool  ("sysex_slider"       );
-		sysExHighHatCtrl = getBool  ("sysex_high_hat_ctrl");
-		sysExRimshot     = getBool  ("sysex_rimshot"      );
-		sysExOpenBass    = getBool  ("sysex_open_bass"    );
-		diffBand         = getInt   ("diff_band"          );
-		diffGuitar       = getInt   ("diff_guitar"        );
-		diffVocals       = getInt   ("diff_vocals"        );
-		diffDrums        = getInt   ("diff_drums"         );
-		diffBass         = getInt   ("diff_bass"          );
-		diffKeys         = getInt   ("diff_keys"          );
-		diffGuitarReal   = getInt   ("diff_guitar_real"   );
-		diffVocalsHarm   = getInt   ("diff_vocals_harm"   );
-		diffDrumsReal    = getInt   ("diff_drums_real"    );
-		diffBassReal     = getInt   ("diff_bass_real"     );
-		diffKeysReal     = getInt   ("diff_keys_real"     );
-		diffDance        = getInt   ("diff_dance"         );
-		diffGuitarCoop   = getInt   ("diff_guitar_coop"   );
-		diffRhythm       = getInt   ("diff_rhythm"        );
-		diffBassReal22   = getInt   ("diff_bass_real_22"  );
-		diffGuitarReal22 = getInt   ("diff_guitar_real_22");
-		loadingPhrase    = getString("loading_phrase"     );
-		bannerLinkA      = getString("banner_link_a"      );
-		linkNameA        = getString("link_name_a"        );
-		bannerLinkB      = getString("banner_link_b"      );
-		linkNameB        = getString("link_name_b"        );
-		video            = getString("video"              );
-		videoStartTime   = getInt   ("video_start_time"   );
-		previewStartTime = getInt   ("preview_start_time" );
-		diffDrumsRealPs  = getInt   ("diff_drums_real_ps" );
-		diffKeysRealPs   = getInt   ("diff_keys_real_ps"  );
-		delay            = getInt   ("delay"              );
-		diffGuitarGhl    = getInt   ("diff_guitarghl"     );
-		diffBassGhl      = getInt   ("diff_bassghl"       );
-		track            = getInt   ("track"              , -1);
-		albumTrack       = getInt   ("album_track"        , -1);
-		playlistTrack    = getInt   ("playlist_track"     , -1);
-		songLength       = getInt   ("song_length"        );
-		modChart         = getInt   ("modchart"           );
-		multiplierNote   = getInt   ("multiplier_note"    );
-		drumFallbackBlue = getBool  ("drum_fallback_blue" );
-		lastPlay         = getString("last_play"          );
+		final nameRaw          = getString("name"               , null);
+		final artist           = getString("artist"             );
+		final album            = getString("album"              );
+		final genre            = getString("genre"              );
+		final year             = getString("year"               );
+		final icon             = getString("icon"               );
+		final charter          = getString("charter"            );
+		final proDrums         = getBool  ("pro_drums"          );
+		final loadingPhrase    = getString("loading_phrase"     );
+		final albumTrack       = getInt   ("album_track"        , -1);
+		final songLength       = getInt   ("song_length"        );
+		
+		// unused
+		final fiveLaneDrums    = getBool  ("five_lane_drums"    );
+		final sysExSlider      = getBool  ("sysex_slider"       );
+		final sysExHighHatCtrl = getBool  ("sysex_high_hat_ctrl");
+		final sysExRimshot     = getBool  ("sysex_rimshot"      );
+		final sysExOpenBass    = getBool  ("sysex_open_bass"    );
+		final diffBand         = getInt   ("diff_band"          );
+		final diffGuitar       = getInt   ("diff_guitar"        );
+		final diffVocals       = getInt   ("diff_vocals"        );
+		final diffDrums        = getInt   ("diff_drums"         );
+		final diffBass         = getInt   ("diff_bass"          );
+		final diffKeys         = getInt   ("diff_keys"          );
+		final diffGuitarReal   = getInt   ("diff_guitar_real"   );
+		final diffVocalsHarm   = getInt   ("diff_vocals_harm"   );
+		final diffDrumsReal    = getInt   ("diff_drums_real"    );
+		final diffBassReal     = getInt   ("diff_bass_real"     );
+		final diffKeysReal     = getInt   ("diff_keys_real"     );
+		final diffDance        = getInt   ("diff_dance"         );
+		final diffGuitarCoop   = getInt   ("diff_guitar_coop"   );
+		final diffRhythm       = getInt   ("diff_rhythm"        );
+		final diffBassReal22   = getInt   ("diff_bass_real_22"  );
+		final diffGuitarReal22 = getInt   ("diff_guitar_real_22");
+		final bannerLinkA      = getString("banner_link_a"      );
+		final linkNameA        = getString("link_name_a"        );
+		final bannerLinkB      = getString("banner_link_b"      );
+		final linkNameB        = getString("link_name_b"        );
+		final video            = getString("video"              );
+		final videoStartTime   = getInt   ("video_start_time"   );
+		final previewStartTime = getInt   ("preview_start_time" );
+		final diffDrumsRealPs  = getInt   ("diff_drums_real_ps" );
+		final diffKeysRealPs   = getInt   ("diff_keys_real_ps"  );
+		final delay            = getInt   ("delay"              );
+		final diffGuitarGhl    = getInt   ("diff_guitarghl"     );
+		final diffBassGhl      = getInt   ("diff_bassghl"       );
+		final track            = getInt   ("track"              , -1);
+		final playlistTrack    = getInt   ("playlist_track"     , -1);
+		final modChart         = getInt   ("modchart"           );
+		final multiplierNote   = getInt   ("multiplier_note"    );
+		final drumFallbackBlue = getBool  ("drum_fallback_blue" );
+		final lastPlay         = getString("last_play"          );
 		
 		for (key=>value in varMap)
 			errors.push('Unused field: $key = $value');
 		
-		name = nameRaw + (errors.length > 0 ? '(${errors.length}!)': '');
-		// trace('$name:${errors.join("\n")}');
+		return
+			{ name         : nameRaw + (errors.length > 0 ? '(${errors.length}!)': '')
+			, artist       : artist
+			, album        : album
+			, genre        : genre
+			, year         : year
+			, icon         : icon
+			, charter      : charter
+			, proDrums     : proDrums
+			, loadingPhrase: loadingPhrase
+			, albumTrack   : albumTrack
+			, songLength   : songLength
+			};
 	}
 	
-	public function toString()
+	public function toSave():SongIniSave
 	{
-		return    'name               : "$name"          '
-			+ '\n, artist             : "$artist"        '
-			+ '\n, album              : "$album"         '
-			+ '\n, genre              : "$genre"         '
-			+ '\n, year               : $year            '
-			+ '\n, icon               : "$icon"          '
-			+ '\n, charter            : "$charter"       '
-			+ '\n, pro_drums          : $proDrums        '
-			+ '\n, five_lane_drums    : $fiveLaneDrums   '
-			+ '\n, sysex_slider       : $sysExSlider     '
-			+ '\n, sysex_high_hat_ctrl: $sysExHighHatCtrl'
-			+ '\n, sysex_rimshot      : $sysExRimshot    '
-			+ '\n, sysex_open_bass    : $sysExOpenBass   '
-			+ '\n, diff_band          : $diffBand        '
-			+ '\n, diff_guitar        : $diffGuitar      '
-			+ '\n, diff_vocals        : $diffVocals      '
-			+ '\n, diff_drums         : $diffDrums       '
-			+ '\n, diff_bass          : $diffBass        '
-			+ '\n, diff_keys          : $diffKeys        '
-			+ '\n, diff_guitar_real   : $diffGuitarReal  '
-			+ '\n, diff_vocals_harm   : $diffVocalsHarm  '
-			+ '\n, diff_drums_real    : $diffDrumsReal   '
-			+ '\n, diff_bass_real     : $diffBassReal    '
-			+ '\n, diff_keys_real     : $diffKeysReal    '
-			+ '\n, diff_dance         : $diffDance       '
-			+ '\n, diff_guitar_coop   : $diffGuitarCoop  '
-			+ '\n, diff_rhythm        : $diffRhythm      '
-			+ '\n, diff_bass_real_22  : $diffBassReal22  '
-			+ '\n, diff_guitar_real_22: $diffGuitarReal22'
-			+ '\n, loading_phrase     : "$loadingPhrase" '
-			+ '\n, banner_link_a      : "$bannerLinkA"   '
-			+ '\n, link_name_a        : "$linkNameA"     '
-			+ '\n, banner_link_b      : "$bannerLinkB"   '
-			+ '\n, link_name_b        : "$linkNameB"     '
-			+ '\n, video              : "$video"         '
-			+ '\n, video_start_time   : $videoStartTime  '
-			+ '\n, preview_start_time : $previewStartTime'
-			+ '\n, diff_drums_real_ps : $diffDrumsRealPs '
-			+ '\n, diff_keys_real_ps  : $diffKeysRealPs  '
-			+ '\n, delay              : $delay           '
-			+ '\n, diff_guitarghl     : $diffGuitarGhl   '
-			+ '\n, diff_bassghl       : $diffBassGhl     '
-			+ '\n, album_track        : $albumTrack      '
-			+ '\n, playlist_track     : $playlistTrack   '
-			+ '\n, song_length        : $songLength      '
-			+ '\n, modchart           : $modChart        '
-			+ '\n, multiplier_note    : $multiplierNote  '
-			+ '\n, drum_fallback_blue : $drumFallbackBlue'
-			;
+		return 
+			{ name          : name
+			, artist        : artist
+			, album         : album
+			, genre         : genre
+			, year          : year
+			, icon          : icon
+			, charter       : charter
+			, proDrums     : proDrums
+			, loadingPhrase: loadingPhrase
+			, albumTrack   : albumTrack
+			, songLength   : songLength
+			};
+	}
+	
+	static public function fromSave(data:SongIniSave):SongIniData
+	{
+		return 
+			{ name         : data.name
+			, artist       : data.artist
+			, album        : data.album
+			, genre        : data.genre
+			, year         : data.year
+			, icon         : data.icon
+			, charter      : data.charter
+			, proDrums     : data.proDrums
+			, loadingPhrase: data.loadingPhrase
+			, albumTrack   : data.albumTrack
+			, songLength   : data.songLength
+			};
 	}
 	
 	static public function load(songName:UnicodeString, file:File, callback:(LoadIniResult)->Void)
@@ -456,7 +534,7 @@ class SongIniData
 			
 			try
 			{
-				callback(SUCCESS(new SongIniData(file.data.toString(), songName)));
+				callback(SUCCESS(SongIniData.fromFile(file.data.toString(), songName)));
 			}
 			catch(e)
 			{
@@ -474,6 +552,27 @@ class SongIniData
 		file.addEventListener(IOErrorEvent.IO_ERROR, onSongIniError);
 		file.load();
 	}
+}
+
+typedef SongIniSave = 
+	{ name         : String
+	, artist       : String
+	, album        : String
+	, genre        : String
+	, year         : String
+	, icon         : String
+	, charter      : String
+	, proDrums     : Bool
+	, loadingPhrase: String
+	, albumTrack   : Int
+	, songLength   : Int
+	};
+
+enum LoadResult<T>
+{
+	SUCCESS(data:T);
+	PARSE_FAIL(e:Exception);
+	IO_ERROR(error:IOErrorEvent);
 }
 
 enum LoadIniResult

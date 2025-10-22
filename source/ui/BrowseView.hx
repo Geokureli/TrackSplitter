@@ -1,37 +1,39 @@
-package states;
+package ui;
 
 import data.SongData;
-import flixel.FlxG;
-import flixel.util.FlxColor;
-import haxe.ui.containers.VBox;
 import haxe.ui.events.MouseEvent;
 import openfl.events.Event;
 import openfl.net.FileFilter;
 import openfl.net.FileReference;
-
-class BrowseState extends flixel.FlxState
-{
-
-	override public function create():Void
-	{
-		// FlxG.cameras.bgColor = FlxColor.WHITE;
-		
-		add(new BrowseView());
-	}
-}
+import ui.PlayView;
 
 @:xml('<?xml version="1.0" encoding="utf-8" ?>
 <vbox width="100%" height="100%">
-    <box height="100%" horizontalAlign="center">
-        <hbox verticalAlign="center">
-            <button id="loadBtn" text="Load Song" />
-            <label  id="infoText" text="Select an .ini file to play a song" verticalAlign="center" />
-        </hbox>
-    </box>
+	<menubar width="100%">
+		<menu text="File">
+			<menuitem id="loadBtn" text="Open File" shortcutText="Ctrl+O" />
+		</menu>
+		<box width="100%"/>
+		<button id="backBtn" text="Back" hidden="true"/>
+	</menubar>
+	<box id="infoBox" height="100%" horizontalAlign="center">
+		<hbox verticalAlign="center">
+			<label  id="infoText" text="No song loaded, select File > Open File and select a song.ini" verticalAlign="center" />
+		</hbox>
+	</box>
 </vbox>
 ')
-class BrowseView extends VBox
+class BrowseView extends haxe.ui.containers.VBox
 {
+	public var songView:PlayView = null;
+	
+	public function new (?song:SongData)
+	{
+		super();
+		
+		onSongChoose(song);
+	}
+    
 	@:bind(loadBtn, MouseEvent.CLICK)
 	function onLoadClick(e)
 	{
@@ -43,12 +45,12 @@ class BrowseView extends VBox
 
 	function onSelect(file:FileReference)
 	{
-		infoText.text = file.name;
+		// infoText.text = file.name;
 		@:privateAccess final path = file.__path;
 		SongData.loadPath(path, (result)->switch result
 		{
-			case SUCCESS(data):
-				FlxG.switchState(()->new PlayState(data, BrowseState.new));
+			case SUCCESS(song):
+				onSongChoose(song);
 			case INI_FAIL(IO_ERROR(_, _)):
 				infoText.text = 'Error loading $path';
 			case INI_FAIL(PARSE_FAIL(name, exception)):
@@ -60,5 +62,17 @@ class BrowseView extends VBox
 			case UNSUPPORTED(song):
 				infoText.text = 'unsupported song file "$song"';
 		});
+	}
+	
+	public function onSongChoose(song:SongData)
+	{
+		if (songView != null)
+		{
+			removeComponent(songView);
+			songView.disposeComponent();
+		}
+		infoBox.hide();
+		addComponent(songView = new PlayView(data));
+		songView.backBtn.hide();
 	}
 }

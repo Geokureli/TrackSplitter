@@ -315,23 +315,22 @@ class SongData
 		final parseFailList:Array<Exception> = [];
 		
 		var frameStartTime = Timer.stamp();
-		var numUnloaded = songs.length;
 		var index = 0;
-		function doNext()
+		function doNextSet()
 		{
-			var frameLoadCount = 50;
-			while (index < songs.length && frameLoadCount-- > 0)
-			// while (index < songs.length)
+			final maxIndex = index + 50;
+			trace('loading set $index-$maxIndex');
+			function doNext()
 			{
-				final song = songs[index++];
+				trace('loading $index');
+				final song = songs[index];
 				loadSong(song, function (result)
 				{
+					trace('loaded $index');
 					switch result
 					{
 						case SUCCESS(data):
 							successList.push(data);
-							final name = data.data.name.toString();
-							// trace('Loaded "$name", ${numUnloaded - 1} left');
 						case INI_FAIL(IO_ERROR(_, error)):
 							ioErrorList.push(error);
 							trace('ioError - $song: $error');
@@ -353,18 +352,24 @@ class SongData
 					if (onProgress != null)
 						onProgress(numFoldersChecked, successList.length, ioErrorList.length, parseFailList.length, Timer.stamp() - startTime);
 					
-					if (--numUnloaded == 0)
+					++index;
+					if (index == songs.length)
 						onComplete(successList);
+					else
+					{
+						if (index >= maxIndex || (haxe.Timer.stamp() - frameStartTime) > 2 / 60)
+						{
+							frameStartTime = haxe.Timer.stamp();
+							FlxTimer.wait(0, doNextSet);
+						}
+						else
+							doNext();
+					}
 				});
 			}
-			
-			if (index < songs.length)
-			{
-				frameStartTime = haxe.Timer.stamp();
-				FlxTimer.wait(0, doNext);
-			}
+			doNext();
 		}
-		doNext();
+		doNextSet();
 	}
 	
 	static public function addSongs(directory:File, list:Array<SongFile>, onProgress:(Int)->Void)

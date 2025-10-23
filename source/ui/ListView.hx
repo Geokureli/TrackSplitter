@@ -55,7 +55,6 @@ class ListView extends VBox
 	{
 		#if save.erase
 		FlxG.save.erase();
-		return;
 		#end
 		
 		final saveData:SaveData = FlxG.save.data;
@@ -98,6 +97,8 @@ class ListView extends VBox
 			final file = new File(directory);
 			if (file.exists)
 				loadLibrary(file, onLibraryLoad);
+			else
+				trace('invalid default path ${file.nativePath}');
 			#end
 			// loadInfoText.text = "No directory selected";
 			// loadInfoText.color = 0xFF808080;

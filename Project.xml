@@ -31,14 +31,13 @@
 
 	<set name="BUILD_DIR" value="export" />
 	<source path="source" />
-	<assets path="assets" />
+	<!-- <assets path="assets" /> -->
 
 	<!-- _______________________________ Libraries ______________________________ -->
 
 	<haxelib name="flixel" />
 	<haxelib name="flixel-dj" />
 	<haxelib name="haxeui-core" />
-	<!-- <haxelib name="haxeui-flixel" /> -->
 	<haxelib name="haxeui-openfl" />
 	<haxelib name="hxopus" />
 
@@ -52,7 +51,9 @@
 	<!--<haxelib name="nape-haxe4" />-->
 
 	<!-- ______________________________ Haxedefines _____________________________ -->
-
+	
+	<!-- <haxedef name="save.erase" /> -->
+	<haxedef name="save.defaultPath" value="./Songs/"/>
 	<!--Remove the legacy health system-->
 	<haxedef name="FLX_NO_HEALTH" />
 	

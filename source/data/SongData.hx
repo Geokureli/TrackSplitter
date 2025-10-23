@@ -41,7 +41,7 @@ class SongData
 		this.data = data;
 		this.tracks = tracks;
 		this.album = album;
-		saveKey = '${data.artist}-${data.album}-${data.charter}';
+		saveKey = '${data.artist}-${data.album}-${data.name}-${data.charter}';
 		isWaveGroup = data.artist.toLowerCase().indexOf("wavegroup") != -1;
 		isFavorite = favorite;
 		isMono = tracks.length == 1;

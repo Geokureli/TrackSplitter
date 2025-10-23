@@ -94,7 +94,8 @@ class ListView extends VBox
 		{
 			#if save.defaultPath
 			final directory = '${haxe.macro.Compiler.getDefine("save.defaultPath")}';
-			final file = new File(haxe.io.Path.normalize(directory));
+			// final file = new File(haxe.io.Path.normalize(directory));
+			final file = new File(directory);
 			if (file.exists)
 				loadLibrary(file, onLibraryLoad);
 			#end
@@ -231,7 +232,8 @@ class ListView extends VBox
 						// create sub-nodes when expanded
 						songList.registerEvent(TreeViewEvent.NODE_EXPANDED, function onExpand(e)
 						{
-							if (node == e.node)
+							// make sure this node is selected and isn't called twice really fast
+							if (node == e.node && node.getNodes().length == 0)
 							{
 								node.unregisterEvent(TreeViewEvent.NODE_EXPANDED, onExpand);
 								createNodes(subMembers, node.addNode);

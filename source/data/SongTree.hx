@@ -229,6 +229,21 @@ class SortUtils
 		}
 	}
 	
+	static public function countFiltered(tree:SongTree, filter:(SongData)->Bool):Int
+	{
+		return switch tree
+		{
+			case Leaf(song, _):
+				final show = filter(song);
+				show ? 1 : 0;
+			case Branch(name, members):
+				var count = 0;
+				for (member in members)
+					count += countFiltered(member, filter);
+				count;
+		}
+	}
+	
 	static public function sort(tree:SongTree)
 	{
 		switch tree

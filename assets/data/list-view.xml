@@ -16,7 +16,6 @@
 							<item text="Genre" />
 						</data>
 					</dropdown>
-					<!-- <checkbox id="filterFavs" text="Fav" selected="false" verticalAlign="center" /> -->
 					<dropdown id="filtersDropDown" text="Select Filters(s)" type="filterDropDown" width="160" />
 				</hbox>
 			</header>
@@ -47,13 +46,16 @@
 			</footer>
 		</panel>
 		<vbox height="100%">
-			<image width="200" height="200" resource="haxeui-core/styles/default/haxeui.png" />
+			<box width="200" height="200" style="background-color:0x000000;">
+				<image id="albumArt" width="100%" height="100%" resource="haxeui-core/styles/default/haxeui.png" hidden="true"/>
+			</box>
 			<button text="Play Track" id="confirmTrackBtn" width="100%" disabled="true"/>
-			<label width="100%" id="artistText" text="Artist Name" verticalAlign="center" textAlign="center" style="font-size: 24; font-bold: true;"/>
+			<label width="100%" id="artistText" text="-" verticalAlign="center" textAlign="center" style="font-size: 24; font-bold: true;"/>
 			<vbox width="100%">
-				<label id="albumText" width="100%" text="Album Name" verticalAlign="center" textAlign="center"/>
-				<label id="genreText" width="100%" text="Genre Name" verticalAlign="center" textAlign="center"/>
-				<label id="yearText" width="100%" text="Year Released" verticalAlign="center" textAlign="center"/>
+				<label id="albumText" width="100%" text="-" textAlign="center"/>
+				<label id="genreText" width="100%" text="-" textAlign="center"/>
+				<label id="yearText" width="100%" text="-" textAlign="center"/>
+				<label id="timeText" width="100%" text="-" textAlign="center"/>
 			</vbox>
 		</vbox>
 	</hbox>

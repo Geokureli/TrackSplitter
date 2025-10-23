@@ -3,6 +3,7 @@ package ui;
 import data.SongData;
 import flixel.sound.FlxDjTrack;
 import haxe.io.Path;
+import haxe.ui.components.Label;
 import haxe.ui.containers.HBox;
 import haxe.ui.containers.VBox;
 import haxe.ui.events.DragEvent;
@@ -23,24 +24,50 @@ class PlayView extends VBox
 		super();
 		
 		titleText.text = song.data.name;
+		loadText.text = 'Loading ${song.data.name}...';
 
 		registerEvent(UIEvent.SHOWN, function (e)
 		{
-			song.loadTracks(function (sounds)
+			song.loadTracks(function (results)
 			{
-				for (track=>sound in sounds)
-					addChannel(sound, track);
+				for (track in song.tracks)
+				{
+					switch results[track]
+					{
+						case SUCCESS(sound):
+							addChannel(sound, track);
+						case PARSE_FAIL(exception):
+							final label = new Label();
+							label.text = 'Error parsing $track: ${exception.message}';
+							channelList.addComponent(label);
+						case LOAD_ERROR(error):
+							final label = new Label();
+							label.text = 'Error loading $track: $error';
+							channelList.addComponent(label);
+					}
+				}
+				onLoad();
+			}, function onProgress(loaded, current)
+			{
+				loadText.text = 'Loading ${song.data.name.toString()} - $current ($loaded/${song.tracks.length})...';
 			});
-			onLoad();
 		});
 		
 		addEventListener(Event.ENTER_FRAME, update);
 	}
 	
+	@:bind(backBtn, MouseEvent.CLICK)
+	function onBackClick(e)
+	{
+		removeEventListener(Event.ENTER_FRAME, update);
+		track.stop();
+		track.destroy();
+	}
+	
 	function onLoad()
 	{
 		loadAnim.hide();
-		channelList.show();
+		content.show();
 		
 		playhead.max = track.length;
 		playhead.registerEvent(DragEvent.DRAG_START, (_)->draggingPlayhead = true);
@@ -50,24 +77,20 @@ class PlayView extends VBox
 			track.time = playhead.pos;
 		});
 		
-		onBtn.show();
 		onBtn.registerEvent(MouseEvent.CLICK, function (_)
 		{
 			for (item in items)
 				item.volume.pos = item.volume.max;
 		});
 		
-		offBtn.show();
 		offBtn.registerEvent(MouseEvent.CLICK, function (_)
 		{
 			for (item in items)
 				item.volume.pos = 0;
 		});
 		
-		masterVolume.show();
 		masterVolume.registerEvent(DragEvent.DRAG, (_)->track.volume = masterVolume.pos / masterVolume.max);
 		
-		playBtn.show();
 		playBtn.registerEvent(MouseEvent.CLICK, function (_)
 		{
 			if (track.playing)
@@ -82,7 +105,6 @@ class PlayView extends VBox
 			}
 		});
 		
-		restartBtn.show();
 		restartBtn.registerEvent(MouseEvent.CLICK, function (_)
 		{
 			playBtn.text = "||";//"▮▮";
@@ -119,6 +141,7 @@ class PlayView extends VBox
 	
 	function update(_)
 	{
+		track.update(1 / stage.frameRate);	
 		if (track.playing && false == draggingPlayhead)
 		{
 			// trace('range: ${playhead.min}<->${playhead.max} - ${track.time}');

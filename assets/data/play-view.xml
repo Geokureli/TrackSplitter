@@ -6,18 +6,18 @@
         </header>
         <vbox width="100%">
             <vbox id="loadAnim" width="100%" height="100%">
-                <label text="Loading..." horizontalAlign="center"/>
+                <label id="loadText" text="Loading..." horizontalAlign="center"/>
                 <spinner width="32" height="32" horizontalAlign="center"/>
             </vbox>
-            <vbox id="content" width="100%">
+            <vbox id="content" width="100%" hidden="true">
                 <hbox width="100%">
                     <label id="titleText" text="Song Title" width="100" verticalAlign="center" />
                     <label text="Vol" width="30" verticalAlign="center" textAlign="right"/>
-                    <slider id="masterVolume" pos="100" verticalAlign="center" width="100%" hidden="true" />
-                    <button id="offBtn" text="All Off" width="80" hidden="true" />
-                    <button id="onBtn"  text="All On"  width="80" hidden="true" />
+                    <slider id="masterVolume" pos="100" verticalAlign="center" width="100%" />
+                    <button id="offBtn" text="All Off" width="80" />
+                    <button id="onBtn"  text="All On"  width="80" />
                 </hbox>
-                <vbox id="channelList" width="100%" height="100%" hidden="true">
+                <vbox id="channelList" width="100%" height="100%">
                     <hbox width="100%">
                         <button id="playBtn" text=">" />
                         <slider id="playhead" width="100%" verticalAlign="center" />

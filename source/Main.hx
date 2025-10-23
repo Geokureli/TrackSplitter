@@ -9,6 +9,7 @@ import ui.PlayView;
 
 class Main extends openfl.display.Sprite
 {
+	var listView:ListView;
 	public function new()
 	{
 		super();
@@ -23,24 +24,20 @@ class Main extends openfl.display.Sprite
 		FlxG.autoPause = false;
 		
 		var app = new HaxeUIApp();
-        app.ready(function() {
-            // app.addComponent(new ui.BrowseView());
-			createList(app);
-
-            app.start();
-        });
-	}
-	
-	function createList(app:HaxeUIApp, ?song)
-	{
-		final listView = new ListView(song);
-		listView.confirmTrackBtn.registerEvent(MouseEvent.CLICK, function (e)
+		
+        app.ready(function()
 		{
-			final song = listView.selectedSong;
-			app.removeComponent(listView);
-			createPlay(app, song);
+			listView = new ListView();
+			listView.confirmTrackBtn.registerEvent(MouseEvent.CLICK, function (e)
+			{
+				final song = listView.selectedSong;
+				listView.hide();
+				createPlay(app, song);
+			});
+			app.addComponent(listView);
+
+			app.start();
 		});
-		app.addComponent(listView);
 	}
 	
 	function createPlay(app:HaxeUIApp, song:SongData)
@@ -49,7 +46,7 @@ class Main extends openfl.display.Sprite
 		playView.backBtn.registerEvent(MouseEvent.CLICK, function (e)
 		{
 			app.removeComponent(playView);
-			createList(app, song);
+			listView.show();
 		});
 		app.addComponent(playView);
 	}

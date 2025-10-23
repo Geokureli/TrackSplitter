@@ -5,6 +5,7 @@ import data.SongTree;
 import flixel.FlxG;
 import flixel.util.FlxTimer;
 import haxe.Exception;
+import haxe.ui.components.CheckBox;
 import haxe.ui.components.DropDown;
 import haxe.ui.components.Label;
 import haxe.ui.containers.TreeView;
@@ -13,6 +14,7 @@ import haxe.ui.containers.VBox;
 import haxe.ui.events.MouseEvent;
 import haxe.ui.events.TreeViewEvent;
 import haxe.ui.events.UIEvent;
+import openfl.display.BitmapData;
 import openfl.events.Event;
 import openfl.events.IOErrorEvent;
 import openfl.filesystem.File;
@@ -22,6 +24,7 @@ import ui.FilterDropdown;
 class ListView extends VBox
 {
 	static var library:Array<SongData> = null;
+	static var favorites:Array<String> = [];
 	
 	var tree:Array<SongTree> = null;
 	public var selectedSong(default, null):SongData = null;
@@ -36,12 +39,29 @@ class ListView extends VBox
 		registerEvent(UIEvent.SHOWN, function onShown(e)
 		{
 			checkSavedDirectory();
+			
+			filtersDropDown.onClick = function (e)
+			{
+				filtersDropDown.onClick = null;
+				FilterDropDown.view.favBox.onChange = onSortChange;
+				FilterDropDown.view.wavegroupBox.onChange = onSortChange;
+				FilterDropDown.view.monoBox.onChange = onSortChange;
+			}
+			sortBy.onChange = onSortChange;
 		});
 	}
 	
 	function checkSavedDirectory()
 	{
+		#if save.erase
+		FlxG.save.erase();
+		return;
+		#end
+		
 		final saveData:SaveData = FlxG.save.data;
+		if (saveData.favs != null)
+			favorites = saveData.favs;
+		
 		final savedPath = saveData.path;
 		if (savedPath != null)
 		{
@@ -72,6 +92,12 @@ class ListView extends VBox
 		}
 		else
 		{
+			#if save.defaultPath
+			final directory = '${haxe.macro.Compiler.getDefine("save.defaultPath")}';
+			final file = new File(haxe.io.Path.normalize(directory));
+			if (file.exists)
+				loadLibrary(file, onLibraryLoad);
+			#end
 			// loadInfoText.text = "No directory selected";
 			// loadInfoText.color = 0xFF808080;
 		}
@@ -157,27 +183,31 @@ class ListView extends VBox
 		loadInfoText.hide();
 		
 		library = songs;
+		for (song in library)
+		{
+			if (favorites.contains(song.saveKey))
+				song.isFavorite = true;
+		}
+		
 		sortLibrary();
 	}
 	
-	@:bind(sortBy, UIEvent.CHANGE)
 	function onSortChange(e)
 	{
 		if (library != null)
-		{
-			songList.clearNodes();
-			sortLibrary();
-		}
+			filterNodes();
 	}
 	
 	function sortLibrary()
 	{
+		songList.clearNodes();
 		final sorter:SortName = sortBy.selectedItem.text;
-		tree = sorter.createTree(library.filter(showNode));
+		tree = sorter.createTree(library);
 		final selectedPath = selectedSong == null ? null : SortUtils.findSongPath(tree, selectedSong, sorter);
 		
-		trace(tree.length);
+		// trace(tree.length, songList.getNodes().length, haxe.CallStack.callStack());
 		createNodes(tree, songList.addNode, selectedPath);
+		filterNodes();
 	}
 	
 	function createNodes(members:Array<SongTree>, addFunc:(Any)->TreeViewNode, ?selectedPath:Array<String>)
@@ -188,7 +218,7 @@ class ListView extends VBox
 			switch member
 			{
 				case Branch(name, subMembers):
-					final node = addFunc({ label: name, count: subMembers.length });
+					final node = addFunc({ label: name, count: subMembers.length, members:subMembers });
 					node.expandable = true;
 					if (selected != null && selected == name)
 					{
@@ -205,11 +235,26 @@ class ListView extends VBox
 							{
 								node.unregisterEvent(TreeViewEvent.NODE_EXPANDED, onExpand);
 								createNodes(subMembers, node.addNode);
+								filterSubNodes(node.getNodes(), FilterDropDown.filterFunc);
 							}
 						});
 					}
 				case Leaf(song, _):
-					final node = addFunc({ artist: song.data.artist, title:song.data.name, favorite:false });
+					final fav = favorites.contains(song.saveKey);
+					final node = addFunc({ artist: song.data.artist, title:song.data.name, favorite:fav, song:song });
+					final favBox = node.findComponent("favorite", CheckBox);
+					if (favBox == null)
+						throw "could not find favorite";
+					else
+						favBox.registerEvent(UIEvent.CHANGE, function (e)
+						{
+							song.isFavorite = favBox.selected;
+							if (favBox.selected && false == favorites.contains(song.saveKey))
+								favorites.push(song.saveKey);
+							else if (false == favBox.selected)
+								favorites.remove(song.saveKey);
+						});
+					
 					if (song == selectedSong)
 					{
 						if (songList.isReady)
@@ -221,18 +266,44 @@ class ListView extends VBox
 		}
 	}
 	
-	function showNode(song:SongData)
+	function filterNodes()
 	{
-		// if (filtersDropDown.favorites)
-		// 	return false; // TODO: save and check favs
-		
-		// if (filtersDropDown.ogArtists)
-		// 	return false; // TODO: save and check favs
-		
-		// if (song.tracks.length > 0)
-		// 	return false;
-		
-		return true;
+		#if debug
+		FilterDropDown.logFiltered(library);
+		#end
+		filterSubNodes(songList.getNodes(), FilterDropDown.filterFunc);
+	}
+	
+	function filterSubNodes(nodes:Array<TreeViewNode>, filter:(SongData)->Bool):Int
+	{
+		var count = 0;
+		for (node in nodes)
+		{
+			if (node.expandable)
+			{
+				final nodeData:{ label:String, count:Int, members:Array<SongTree> } = node.data;
+				final subCount = if (node.expanded)
+					filterSubNodes(node.getNodes(), filter);
+				else
+					Lambda.fold(nodeData.members, (member, count)->count + member.countFiltered(filter), 0);
+				
+				// trace('${nodeData.label} - count: $subCount');
+				nodeData.count = subCount;
+				node.hidden = subCount == 0;
+				count += subCount;
+			}
+			else
+			{
+				final nodeData:{ artist: String, title:String, favorite:Bool, song:SongData } = node.data;
+				final showNode = filter(nodeData.song);
+				if (showNode)
+					count++;
+				// else
+				// 	trace('hiding node ${nodeData.artist} - ${nodeData.title}');
+				node.hidden = false == showNode;
+			}
+		}
+		return count;
 	}
 	
 	function saveLibrary(directory:File, songs:Array<SongData>)
@@ -240,7 +311,7 @@ class ListView extends VBox
 		final data:SaveData = FlxG.save.data;
 		data.path = directory.nativePath;
 		data.songs = songs.map((s)->s.toSave());
-		data.favs = [];// TODO
+		data.favs = favorites;
 		FlxG.save.flush();
 	}
 	
@@ -256,7 +327,11 @@ class ListView extends VBox
 			albumText.text = '-';
 			yearText.text = '-';
 			genreText.text = '-';
+			timeText.text = '-';
 			confirmTrackBtn.disabled = true;
+			albumArt.hidden = true;
+			if (node != null)
+				node.expanded = true;
 		}
 		else
 		{
@@ -269,13 +344,46 @@ class ListView extends VBox
 			if (song == null)
 				throw "Error selecting song";
 			
+			song.loadTracks(function (results)
+			{
+				// TODO: play preview
+			});
 			selectedSong = song;
 			artistText.text = song.data.artist;
 			albumText.text = song.data.album;
 			yearText.text = '${song.data.year}';
 			genreText.text = song.data.genre;
+			timeText.text = getTime(song.data.songLength);
 			confirmTrackBtn.disabled = false;
+			
+			if (song.album != null)
+			{
+				final album = song.loadAlbumArt();
+				album.onComplete(function (bitmapData)
+				{
+					if (selectedSong == song)
+					{
+						albumArt.hidden = false;
+						// albumArt.removeChildren();
+						// albumArt.addChild(new openfl.display.Bitmap(bitmapData));
+						albumArt.resource = bitmapData;
+						trace('displaying album art');
+					}
+				});
+			}
+			else
+			{
+				albumArt.hidden = true;
+			}
 		}
+	}
+	
+	function getTime(ms:Int)
+	{
+		final totalSeconds:Int = Math.round(ms / 1000);
+		final minutes = Std.int(totalSeconds / 60);
+		final seconds = totalSeconds % 60;
+		return '$minutes:${seconds < 10 ? '0':''}$seconds';
 	}
 }
 

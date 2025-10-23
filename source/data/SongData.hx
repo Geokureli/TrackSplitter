@@ -4,17 +4,21 @@ import flixel.util.FlxTimer;
 import haxe.Exception;
 import haxe.Timer;
 import haxe.io.Path;
+import openfl.display.BitmapData;
 import openfl.events.Event;
 import openfl.events.IOErrorEvent;
 import openfl.filesystem.File;
 import openfl.media.Sound;
+import openfl.utils.Assets;
 import openfl.utils.ByteArray;
+import openfl.utils.Future;
 
 typedef SongDataSave =
 {
-	path:String,
-	data:SongIniSave,
-	tracks:Array<String>
+	final path:String;
+	final data:SongIniSave;
+	final tracks:Array<String>;
+	final album:Null<String>;
 }
 
 class SongData
@@ -22,12 +26,26 @@ class SongData
 	public final file:File;
 	public final data:SongIniData;
 	public final tracks:Array<String>;
-	
-	public function new (file, data, tracks)
+	public final album:Null<String>;
+	public final saveKey:String;
+	public final isWaveGroup:Bool;
+	public final isMono:Bool;
+	public final isEmpty:Bool;
+	public var isFavorite:Bool;
+	var trackLoadState = TrackLoadState.UNSTARTED;
+	var albumArt:Future<BitmapData> = null;
+		
+	public function new (file, data, tracks, album, favorite = false)
 	{
 		this.file = file;
 		this.data = data;
 		this.tracks = tracks;
+		this.album = album;
+		saveKey = '${data.artist}-${data.album}-${data.charter}';
+		isWaveGroup = data.artist.toLowerCase().indexOf("wavegroup") != -1;
+		isFavorite = favorite;
+		isMono = tracks.length == 1;
+		isEmpty = tracks.length == 0;
 	}
 	
 	public function toSave():SongDataSave
@@ -36,44 +54,149 @@ class SongData
 			{ path  : file.nativePath
 			, data  : data.toSave()
 			, tracks: tracks
+			, album : album
 			}
 	}
 	
-	public function loadTracks(onComplete:(Map<String, Sound>)->Void)
+	public function loadAlbumArt()
 	{
-		final sounds = new Map<String, Sound>();
-		var soundsLeft = tracks.length;
-		function add(track, sound)
+		final key = '${data.artist}-${data.album}';
+		if (album == null)
 		{
-			// trace('$track loaded. ${soundsLeft - 1} left');
-			sounds[track] = sound;
-			if (--soundsLeft == 0)
-				onComplete(sounds);
+			trace('Missing albumArt $key');
+			return null;
 		}
 		
-		for (track in tracks)
+		if (albumArt == null)
 		{
+			if (Assets.cache.hasBitmapData(key))
+			{
+				albumArt = Future.withValue(Assets.cache.getBitmapData(key));
+				return albumArt;
+			}
+			
+			final path = '${file.nativePath}/${album}';
+			trace('loading album art $key: $path');
+			albumArt = BitmapData.loadFromFile(path);
+			albumArt.onComplete(function (bmd)
+			{
+				trace('loaded album art $key');
+				Assets.cache.setBitmapData(key, bmd);
+			});
+		}
+		
+		return albumArt;
+	}
+	
+	public function loadTracks(onComplete:(Map<String, LoadResult<Sound>>)->Void, ?onProgress:(loaded:Int, current:String)->Void)
+	{
+		switch trackLoadState
+		{
+			case LOADED(results):
+				onComplete(results);
+				return;
+			case LOADING(completeCallback, progressCallback):
+				completeCallback.push(function(results)
+				{
+					onComplete(results);
+				});
+				
+				if (onProgress != null)
+				{
+					progressCallback.push(function(numLoaded, current)
+					{
+						onProgress(numLoaded, current);
+					});
+				}
+				return;
+			case UNSTARTED:
+				// keep going
+		}
+		
+		final completeCallbacks = [onComplete];
+		final progressCallbacks = onProgress != null ? [onProgress] : [];
+		trackLoadState = LOADING(completeCallbacks, progressCallbacks);
+		
+		onComplete = function (results)
+		{
+			trackLoadState = LOADED(results);
+			for (callback in completeCallbacks)
+				callback(results);
+		}
+		
+		onProgress = function (numLoaded, current)
+		{
+			for (callback in progressCallbacks)
+				callback(numLoaded, current);
+		}
+		
+		final sounds = new Map<String, LoadResult<Sound>>();
+		var index = 0;
+		var loadNext:()->Void = null;
+		function add(track, result)
+		{
+			sounds[track] = result;
+			trace('$track loaded ${result.match(SUCCESS(_)) ? "" : "un"}successfully ${index + 1}/${tracks.length}');
+			if (++index == tracks.length)
+				onComplete(sounds);
+			else
+				haxe.Timer.delay(()->loadNext(), 1);
+		}
+		
+		loadNext = function ()
+		{
+			final track = tracks[index];
 			final path = new File(Path.normalize(file.nativePath + "/" + track));
-			// trace('Loading track: $track');
+			
+			trace('Loading $track: ${path.nativePath}');
+			if (onProgress != null)
+				onProgress(index, track);
+			
+			if (Assets.cache.hasSound(path.nativePath))
+			{
+				add(track, SUCCESS(Assets.cache.getSound(path.nativePath)));
+				return;
+			}
+			
+			if (false == path.exists)
+			{
+				add(track, LOAD_ERROR('No file ${path.nativePath} exists'));
+				return;
+			}
+			
 			switch path.extension
 			{
 				case "ogg":
-					final future = Sound.loadFromFile(track);
-					future.onComplete(add.bind(track, _));
+					final future = Sound.loadFromFile(path.nativePath);
+					future.onComplete(function (sound)
+					{
+						Assets.cache.setSound(path.nativePath, sound);
+						add(track, SUCCESS(sound));
+					});
+					future.onError((error)->add(track, LOAD_ERROR(error)));
 				case "opus":
 					loadFile(path, (result)->switch result
 					{
 						case SUCCESS(data):
-							add(track, hxopus.Opus.toOpenFL(data));
+							var result:LoadResult<Sound> = null;
+							try
+							{
+								result = SUCCESS(hxopus.Opus.toOpenFL(data));
+							}
+							catch(e)
+							{
+								result = PARSE_FAIL(e);
+							}
+							add(track, result);
 						case PARSE_FAIL(exception):
-							throw exception;
-						case IO_ERROR(error):
-							throw error.toString();
+							throw 'Unexpected parse failure exception: "$exception"';
+						case LOAD_ERROR(error):
+							add(track, LOAD_ERROR(error));
 					});
 				default:
 			}
-			
 		}
+		loadNext();
 	}
 	
 	static public function loadFile(file:File, callback:(LoadResult<ByteArray>)->Void)
@@ -89,21 +212,13 @@ class SongData
 		onLoad = function (e:Event)
 		{
 			removeListeners();
-			
-			try
-			{
-				callback(SUCCESS(file.data));
-			}
-			catch(e)
-			{
-				callback(PARSE_FAIL(e));
-			}
+			callback(SUCCESS(file.data));
 		}
 		
 		onError = function (e:IOErrorEvent)
 		{
 			removeListeners();
-			callback(IO_ERROR(e));
+			callback(LOAD_ERROR(e));
 		}
 		
 		file.addEventListener(Event.COMPLETE, onLoad);
@@ -113,7 +228,7 @@ class SongData
 	
 	static public function fromSave(data:SongDataSave)
 	{
-		return new SongData(new File(data.path), SongIniData.fromSave(data.data), data.tracks);
+		return new SongData(new File(data.path), SongIniData.fromSave(data.data), data.tracks, data.album);
 	}
 	
 	static public function fromFile(songFile:SongFile, data:SongIniData)
@@ -132,7 +247,13 @@ class SongData
 			case SNG(_): []; // TODO:
 			case ZIP(_): []; // TODO:
 		}
-		return new SongData(file, data, tracks);
+		final album = switch songFile
+		{
+			case FOLDER(folder, _): getAlbumInFolder(folder.getDirectoryListing());
+			case SNG(_): null; // TODO:
+			case ZIP(_): null; // TODO:
+		}
+		return new SongData(file, data, tracks, album);
 	}
 	
 	static function getTracksInFolder(files:Array<File>)
@@ -141,6 +262,17 @@ class SongData
 		
 		for (file in files)
 		{
+			if (file.name.substr(0, 2) == "._")
+			{
+				#if delete._files
+				file.deleteFile();
+				trace('deleting ${file.name}');
+				#else
+				trace('ignoring ${file.name}');
+				#end
+				continue;
+			}
+			
 			switch (Path.extension(file.name))
 			{
 				case "ogg" | "opus":
@@ -149,6 +281,20 @@ class SongData
 		}
 		
 		return tracks;
+	}
+	
+	static function getAlbumInFolder(files:Array<File>)
+	{
+		for (file in files)
+		{
+			switch (Path.withoutDirectory(file.name))
+			{
+				case "album.jpg" | "album.png":
+					return file.name;
+			}
+		}
+		
+		return null;
 	}
 	
 	static public function scanForSongs(directory:File, onComplete:(songs:Array<SongData>)->Void, ?onProgress:SongScanProgressCallback)
@@ -329,6 +475,8 @@ class SongIniData
 	public final loadingPhrase   :UnicodeString; // "loading_phrase"
 	public final albumTrack      :Int          ; // "album_track"
 	public final songLength      :Int          ; // "song_length"
+	public final previewStart    :Int          ; // "preview_start_time"
+	public final previewEnd      :Int          ; // "preview_end_time"
 	
 	public function toString()
 	{
@@ -343,134 +491,37 @@ class SongIniData
 			+ '\n, loading_phrase     : "$loadingPhrase" '
 			+ '\n, album_track        : $albumTrack      '
 			+ '\n, song_length        : $songLength      '
+			+ '\n, preview_start_time : $previewStart    '
+			+ '\n, preview_end_time   : $previewEnd      '
 			;
 	}
 	
-	
-	static final boolReg = ~/^(?:True|False|0|1)$/;
-	static final intReg = ~/-?\d+/;
-	
 	static public function fromFile(data:UnicodeString, backupName:String):SongIniData
 	{
-		final lines = data.split("\r\n").join("\n").split("\n");
-		final varMap = new Map<String, UnicodeString>();
-		final errors = new Array<UnicodeString>();
-		
-		while (lines.length > 0)
-		{
-			final line = lines.shift().split(" = ");
-			if (line.length == 1 || line[1].length == 0)
-				continue;
-			
-			// varMap[StringTools.trim(line[0])] = StringTools.trim(line[1]);
-			varMap[line[0]] = line[1];
-		}
-		
-		if (false == varMap.exists("name"))
-			varMap["name"] = '[$backupName]';
-		
-		function getString(name:String, backup = "")
-		{
-			if (false == varMap.exists(name))
-				return backup;
-			
-			final result = varMap[name];
-			varMap.remove(name);
-			return result;
-		}
-		
-		function getBool(name:String, backup = false):Bool
-		{
-			if (false == varMap.exists(name))
-				return backup;
-			
-			final value = varMap[name];
-			varMap.remove(name);
-			
-			if (boolReg.match(value) == false)
-			{
-				errors.push('Expected field "$name" to be a Bool, found: "$value"');
-				return backup;
-			}
-			
-			return value == "True" || value == "1";
-		}
-		
-		function getInt(name:String, backup = 0):Int
-		{
-			if (false == varMap.exists(name))
-				return backup;
-			
-			final value = varMap[name];
-			varMap.remove(name);
-			
-			if (intReg.match(value) == false)
-			{
-				errors.push('Expected field "$name" to be an Int, found: "$value"');
-				return backup;
-			}
-			
-			return Std.parseInt(intReg.matched(0));
-		}
-		
-		final nameRaw          = getString("name"               , null);
-		final artist           = getString("artist"             );
-		final album            = getString("album"              );
-		final genre            = getString("genre"              );
-		final year             = getString("year"               );
-		final icon             = getString("icon"               );
-		final charter          = getString("charter"            );
-		final proDrums         = getBool  ("pro_drums"          );
-		final loadingPhrase    = getString("loading_phrase"     );
-		final albumTrack       = getInt   ("album_track"        , -1);
-		final songLength       = getInt   ("song_length"        );
-		
-		// unused
-		final fiveLaneDrums    = getBool  ("five_lane_drums"    );
-		final sysExSlider      = getBool  ("sysex_slider"       );
-		final sysExHighHatCtrl = getBool  ("sysex_high_hat_ctrl");
-		final sysExRimshot     = getBool  ("sysex_rimshot"      );
-		final sysExOpenBass    = getBool  ("sysex_open_bass"    );
-		final diffBand         = getInt   ("diff_band"          );
-		final diffGuitar       = getInt   ("diff_guitar"        );
-		final diffVocals       = getInt   ("diff_vocals"        );
-		final diffDrums        = getInt   ("diff_drums"         );
-		final diffBass         = getInt   ("diff_bass"          );
-		final diffKeys         = getInt   ("diff_keys"          );
-		final diffGuitarReal   = getInt   ("diff_guitar_real"   );
-		final diffVocalsHarm   = getInt   ("diff_vocals_harm"   );
-		final diffDrumsReal    = getInt   ("diff_drums_real"    );
-		final diffBassReal     = getInt   ("diff_bass_real"     );
-		final diffKeysReal     = getInt   ("diff_keys_real"     );
-		final diffDance        = getInt   ("diff_dance"         );
-		final diffGuitarCoop   = getInt   ("diff_guitar_coop"   );
-		final diffRhythm       = getInt   ("diff_rhythm"        );
-		final diffBassReal22   = getInt   ("diff_bass_real_22"  );
-		final diffGuitarReal22 = getInt   ("diff_guitar_real_22");
-		final bannerLinkA      = getString("banner_link_a"      );
-		final linkNameA        = getString("link_name_a"        );
-		final bannerLinkB      = getString("banner_link_b"      );
-		final linkNameB        = getString("link_name_b"        );
-		final video            = getString("video"              );
-		final videoStartTime   = getInt   ("video_start_time"   );
-		final previewStartTime = getInt   ("preview_start_time" );
-		final diffDrumsRealPs  = getInt   ("diff_drums_real_ps" );
-		final diffKeysRealPs   = getInt   ("diff_keys_real_ps"  );
-		final delay            = getInt   ("delay"              );
-		final diffGuitarGhl    = getInt   ("diff_guitarghl"     );
-		final diffBassGhl      = getInt   ("diff_bassghl"       );
-		final track            = getInt   ("track"              , -1);
-		final playlistTrack    = getInt   ("playlist_track"     , -1);
-		final modChart         = getInt   ("modchart"           );
-		final multiplierNote   = getInt   ("multiplier_note"    );
-		final drumFallbackBlue = getBool  ("drum_fallback_blue" );
-		final lastPlay         = getString("last_play"          );
-		
-		for (key=>value in varMap)
-			errors.push('Unused field: $key = $value');
+		final errors = #if debug [] #else null #end;
+		final rawData = SongIniDataReader.parse(data, errors);
 		
 		return
-			{ name         : nameRaw + (errors.length > 0 ? '(${errors.length}!)': '')
+			{ name         : (rawData.name              ?? "Unknown Name") #if debug + (errors.length > 0 ? '(${errors.length}!)': '') #end
+			, artist       : rawData.artist             ?? "Unknown Artist"
+			, album        : rawData.album              ?? "Unknown Album"
+			, genre        : rawData.genre              ?? "Unknown Genre"
+			, charter      : rawData.charter            ?? "Unknown Charter"
+			, year         : rawData.year               ?? "####"
+			, icon         : rawData.icon               
+			, proDrums     : rawData.pro_drums          ?? false
+			, loadingPhrase: rawData.loading_phrase     
+			, albumTrack   : rawData.album_track        ?? 1
+			, songLength   : rawData.song_length        ?? 0
+			, previewStart : rawData.preview_start_time ?? 0
+			, previewEnd   : rawData.preview_end_time   ?? -1
+			};
+	}
+	
+	public function toSave():SongIniSave
+	{
+		return 
+			{ name         : name
 			, artist       : artist
 			, album        : album
 			, genre        : genre
@@ -481,23 +532,8 @@ class SongIniData
 			, loadingPhrase: loadingPhrase
 			, albumTrack   : albumTrack
 			, songLength   : songLength
-			};
-	}
-	
-	public function toSave():SongIniSave
-	{
-		return 
-			{ name          : name
-			, artist        : artist
-			, album         : album
-			, genre         : genre
-			, year          : year
-			, icon          : icon
-			, charter       : charter
-			, proDrums     : proDrums
-			, loadingPhrase: loadingPhrase
-			, albumTrack   : albumTrack
-			, songLength   : songLength
+			, previewStart : previewStart
+			, previewEnd   : previewEnd
 			};
 	}
 	
@@ -515,6 +551,8 @@ class SongIniData
 			, loadingPhrase: data.loadingPhrase
 			, albumTrack   : data.albumTrack
 			, songLength   : data.songLength
+			, previewStart : data.previewStart
+			, previewEnd   : data.previewEnd
 			};
 	}
 	
@@ -566,13 +604,15 @@ typedef SongIniSave =
 	, loadingPhrase: String
 	, albumTrack   : Int
 	, songLength   : Int
+	, previewStart : Int
+	, previewEnd   : Int
 	};
 
 enum LoadResult<T>
 {
 	SUCCESS(data:T);
 	PARSE_FAIL(e:Exception);
-	IO_ERROR(error:IOErrorEvent);
+	LOAD_ERROR(error:Any);
 }
 
 enum LoadIniResult
@@ -580,4 +620,11 @@ enum LoadIniResult
 	SUCCESS(data:SongIniData);
 	PARSE_FAIL(name:String, e:Exception);
 	IO_ERROR(name:String, error:IOErrorEvent);
+}
+
+enum TrackLoadState
+{
+	UNSTARTED;
+	LOADING(onComplete:Array<(result:Map<String, LoadResult<Sound>>)->Void>, onProgress:Array<(numLoaded:Int, current:String)->Void>);
+	LOADED(results:Map<String, LoadResult<Sound>>);
 }

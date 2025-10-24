@@ -19,25 +19,27 @@ class Main extends openfl.display.Sprite
 		toolkit.theme = "dark";
 		toolkit.scaleX = toolkit.scaleY = 1;
 		
+		FlxG.signals.postGameStart.add(function ()
+		{
+			var app = new HaxeUIApp();
+			
+			app.ready(function()
+			{
+				listView = new ListView();
+				listView.confirmTrackBtn.registerEvent(MouseEvent.CLICK, function (e)
+				{
+					final song = listView.selectedSong;
+					listView.hide();
+					createPlay(app, song);
+				});
+				app.addComponent(listView);
+
+				app.start();
+			});
+		});
 		addChild(new flixel.FlxGame());
 		FlxG.mouse.useSystemCursor = true;
 		FlxG.autoPause = false;
-		
-		var app = new HaxeUIApp();
-		
-        app.ready(function()
-		{
-			listView = new ListView();
-			listView.confirmTrackBtn.registerEvent(MouseEvent.CLICK, function (e)
-			{
-				final song = listView.selectedSong;
-				listView.hide();
-				createPlay(app, song);
-			});
-			app.addComponent(listView);
-
-			app.start();
-		});
 	}
 	
 	function createPlay(app:HaxeUIApp, song:SongData)

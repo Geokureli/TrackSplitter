@@ -297,16 +297,29 @@ class SongData
 		return null;
 	}
 	
-	static public function scanForSongs(directory:File, onComplete:(songs:Array<SongData>)->Void, ?onProgress:SongScanProgressCallback)
+	static public function scanForSongs(directory:File, onComplete:(songs:Array<SongData>)->Void, ?onProgress:(SongScanProgress)->Void)
 	{
 		final startTime = Timer.stamp();
-		var numFoldersChecked = 0;
 		final songs = new Array<SongFile>();
+		
+		final progress:SongScanProgress =
+		{
+			numFiles: 0,
+			successCount: 0,
+			ioErrorCount: 0,
+			parseFailCount: 0,
+			time: 0,
+			status: "Scanning for songs..."
+		}
+		
 		addSongs(directory, songs, function progressCallback (folders)
 		{
-			numFoldersChecked = folders;
+			progress.numFiles = folders;
 			if (onProgress != null)
-				onProgress(folders, 0, 0, 0, Timer.stamp() - startTime);
+			{
+				progress.time = Timer.stamp() - startTime;
+				onProgress(progress);
+			}
 		});
 		trace('Found ${songs.length} file(s) in ${Timer.stamp() - startTime}s');
 		
@@ -319,14 +332,22 @@ class SongData
 		function doNextSet()
 		{
 			final maxIndex = index + 50;
-			trace('loading set $index-$maxIndex');
 			function doNext()
 			{
-				trace('loading $index');
 				final song = songs[index];
+				
+				if (onProgress != null)
+				{
+					progress.successCount = successList.length;
+					progress.ioErrorCount = ioErrorList.length;
+					progress.parseFailCount = parseFailList.length;
+					progress.time = Timer.stamp() - startTime;
+					progress.status = 'Parsing ${song.getFile().nativePath}';
+					onProgress(progress);
+				}
+				
 				loadSong(song, function (result)
 				{
-					trace('loaded $index');
 					switch result
 					{
 						case SUCCESS(data):
@@ -348,9 +369,6 @@ class SongData
 						case UNSUPPORTED(FOLDER(file, _)):
 							throw 'Unexpected loadSong result on ${file.nativePath}, please report this issue';
 					}
-					
-					if (onProgress != null)
-						onProgress(numFoldersChecked, successList.length, ioErrorList.length, parseFailList.length, Timer.stamp() - startTime);
 					
 					++index;
 					if (index == songs.length)
@@ -456,14 +474,35 @@ enum LoadSongResult
 	UNSUPPORTED(song:SongFile);
 }
 
-// typedef SongScanCompleteCallback = (successList:Array<SongData>, ioErrorList:Array<IOErrorEvent>, parseFailList:Array<Exception>)->Void;
-typedef SongScanProgressCallback = (numFolders:Int, successCount:Int, ioErrorCount:Int, parseFailList:Int, time:Float)->Void;
+typedef SongScanProgress =
+{
+	numFiles:Int,
+	successCount:Int,
+	ioErrorCount:Int,
+	parseFailCount:Int,
+	time:Float,
+	status:String
+}
 
+@:using(data.SongData.SongFileTools)
 enum SongFile
 {
 	FOLDER(folder:File, ini:File);
 	SNG(file:File);
 	ZIP(file:File);
+}
+
+class SongFileTools
+{
+	static public function getFile(song:SongFile)
+	{
+		return switch song
+		{
+			case FOLDER(folder, _): folder;
+			case SNG(file): file;
+			case ZIP(file): file;
+		}
+	}
 }
 
 @:structInit

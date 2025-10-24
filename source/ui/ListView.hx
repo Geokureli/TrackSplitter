@@ -167,13 +167,15 @@ class ListView extends VBox
 				
 				onComplete(songs);
 			},
-			function onProgress(files, successCount, ioErrorCount, parseFailCount, time)
+			function onProgress(progress)
 			{
 				loadInfoText.text
-					= '$files files(s) found'
-					+ '\n$successCount song(s) loaded'
-					+ '\n$parseFailCount invalid song(s)'
-					+ '\n$ioErrorCount error(s) in ${time}s'
+					= '${progress.numFiles} files(s) found'
+					+ '\n${progress.successCount} song(s) loaded'
+					+ '\n${progress.parseFailCount} invalid song(s)'
+					+ '\n${progress.ioErrorCount} error(s)'
+					+ '\n${progress.status}'
+					+ '\nTime: ${progress.time}s'
 					;
 			}
 		);
